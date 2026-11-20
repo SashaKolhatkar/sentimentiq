@@ -15,6 +15,26 @@ A full-stack React + FastAPI application that analyses pasted comments, uploaded
 - **Built for large datasets.** Uploads are staged to JSONL, inference runs in bounded chunks, records are paginated from the server, and CSV/Excel exports stream from disk. A 100,000-row end-to-end scale test is included.
 - **Optional secure auth.** PBKDF2 password hashing + short-lived HMAC JWT. Disabled by default so the local demo works immediately.
 
+## Screenshots
+
+Captured from the labelled API demo run (37 records), so all charts below reflect real analysis output rather than invented numbers.
+
+| Overview dashboard | Analyze / preview before ingestion |
+|---|---|
+| [![Overview dashboard](docs/screenshots/01-overview-light.jpg)](docs/screenshots/01-overview-light.jpg) | [![Analyze page](docs/screenshots/02-analyze.jpg)](docs/screenshots/02-analyze.jpg) |
+
+| Sentiment intelligence | Spam & fake-review evidence |
+|---|---|
+| [![Sentiment analysis](docs/screenshots/03-sentiment.jpg)](docs/screenshots/03-sentiment.jpg) | [![Spam detection](docs/screenshots/04-spam.jpg)](docs/screenshots/04-spam.jpg) |
+
+| Reports | Dark theme |
+|---|---|
+| [![Reports](docs/screenshots/05-reports.jpg)](docs/screenshots/05-reports.jpg) | [![Dark theme](docs/screenshots/06-overview-dark.jpg)](docs/screenshots/06-overview-dark.jpg) |
+
+Pastel Sepia theme:
+
+[![Pastel Sepia theme](docs/screenshots/07-overview-pastel.jpg)](docs/screenshots/07-overview-pastel.jpg)
+
 ## Project structure
 
 ```

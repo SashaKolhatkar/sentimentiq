@@ -1,7 +1,8 @@
-import { useMemo } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { Cell, Pie, PieChart, ResponsiveContainer, Tooltip } from 'recharts'
 import { AlertTriangle, Play, ShieldAlert } from 'lucide-react'
+import { api } from '../api'
 import { useApp } from '../context'
 import { useChartColors } from '../components/chartTheme'
 import RecordTable from '../components/RecordTable'
@@ -10,6 +11,17 @@ import { Card, ChartCard, EmptyState, InfoBanner, KpiCard, SectionTitle } from '
 export default function Spam() {
   const { run } = useApp()
   const colors = useChartColors()
+  const [flagged, setFlagged] = useState([])
+
+  useEffect(() => {
+    if (!run?.id) return undefined
+    let cancelled = false
+    api.runRecords(run.id, { spam: 'flagged', sort: 'suspicion', limit: 30 })
+      .then((result) => { if (!cancelled) setFlagged(result.records || []) })
+      .catch(() => { if (!cancelled) setFlagged([]) })
+    return () => { cancelled = true }
+  }, [run?.id])
+
   const data = useMemo(() => {
     const labels = run?.summary?.spam?.labels || {}
     return [
@@ -22,8 +34,6 @@ export default function Spam() {
   if (!run) {
     return <div><SectionTitle eyebrow="Trust & safety" title="Spam & fake review detection" /><EmptyState icon={ShieldAlert} title="No suspicion results yet" description="Run an analysis to see duplicate, burst, promotional and account-level evidence." action={<Link to="/analyze" className="btn btn-primary"><Play size={16} /> Analyze content</Link>} /></div>
   }
-
-  const flagged = run.records.filter((r) => r.suspicion_score >= 0.34)
 
   return (
     <div className="space-y-6">
@@ -60,7 +70,7 @@ export default function Spam() {
         <Card className="p-5">
           <div className="flex items-center justify-between">
             <h3 className="text-sm font-bold">Flagged records & explanations</h3>
-            <span className="chip badge-warning">{flagged.length} flagged</span>
+            <span className="chip badge-warning">{run.summary.spam.flagged_count || flagged.length} flagged</span>
           </div>
           <div className="mt-4 max-h-[320px] space-y-3 overflow-auto pr-1">
             {flagged.slice(0, 30).map((r) => (
