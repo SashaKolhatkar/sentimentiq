@@ -13,7 +13,7 @@ A full-stack React + FastAPI application that analyses pasted comments, uploaded
 - **Interactive dashboard.** KPI cards, pie/donut/bar/area/line charts, word cloud, filters, review explorer, alerts and generated recommendations.
 - **Report generation.** PDF (with charts), multi-sheet Excel and enriched CSV.
 - **Built for large datasets.** Uploads are staged to JSONL, inference runs in bounded chunks, records are paginated from the server, and CSV/Excel exports stream from disk. A 100,000-row end-to-end scale test is included.
-- **Optional secure auth.** PBKDF2 password hashing + short-lived HMAC JWT. Disabled by default so the local demo works immediately.
+- **Optional multi-user auth.** Individual accounts with PBKDF2 password hashes, admin/analyst/viewer roles, self-service password changes and short-lived HMAC JWTs. Disabled by default so the local demo works immediately.
 
 ## Screenshots
 
@@ -111,13 +111,21 @@ python smoke_large.py
 
 It stages and analyses 100,000 rows, then verifies paginated filtering, sorted paging, 100,001-line CSV export and bounded PDF output.
 
+Run the multi-user auth test (uses a temporary SQLite database, so it never touches your accounts):
+
+```powershell
+python smoke_auth.py
+```
+
+It verifies login, account creation, role permissions, self-service password changes, admin resets, disable/enable, and last-admin protections.
+
 ## Downloading the models
 
 Models download on first use, or from **Settings → AI models → Download all models**. They are cached in `backend/data/models`. The Settings page shows cached/loaded/error state for each checkpoint. If a download fails, analysis continues with a transparent lexicon/behavioral fallback and labels the engine used.
 
 > First download is several hundred MB and needs internet access. CPU inference is the default; set `SENTIMENTIQ_DEVICE=0` to use the first CUDA GPU.
 
-## Enabling authentication
+## Enabling multi-user authentication
 
 Copy `.env.example` and set at least:
 
@@ -127,7 +135,16 @@ SENTIMENTIQ_ADMIN_PASSWORD=a-strong-password
 SENTIMENTIQ_SECRET_KEY=a-long-random-string
 ```
 
-Export these before starting uvicorn (or load them with your env-file tool). The password is stored as a salted PBKDF2 hash in the local SQLite database, not in plain text.
+Export these before starting uvicorn (or load them with your env-file tool). `SENTIMENTIQ_ADMIN_PASSWORD` seeds the **first** admin account only; it is stored as a salted PBKDF2 hash in the local SQLite database, not in plain text.
+
+Once signed in, use **Settings → Users & access** to:
+
+- create additional `admin`, `analyst` or `viewer` accounts;
+- change your own password;
+- reset another account's password;
+- disable, enable, reassign or delete accounts.
+
+`viewer` accounts can browse results but cannot start analyses or delete runs. `analyst` accounts can work with data but cannot manage accounts. The last active admin cannot be demoted, disabled or deleted. If no seeded admin is configured and the database is empty, the login screen offers a one-time **Create the first admin** option.
 
 ## Input formats
 
@@ -191,7 +208,7 @@ Hugging Face Spaces now requires a paid plan for Docker, and Render’s free con
    powershell -ExecutionPolicy Bypass -File .\deploy_cloudflare.ps1
    ```
 
-3. The script starts the backend on port `8011`, enables authentication, generates an admin password, and prints a public `https://*.trycloudflare.com` URL. Keep the window open while sharing the link. Press `Ctrl+C` to stop both the tunnel and backend.
+3. The script starts the backend on port `8011`, enables authentication, generates the first admin password, and prints a public `https://*.trycloudflare.com` URL. Keep the window open while sharing the link. Press `Ctrl+C` to stop both the tunnel and backend.
 
 The quick-tunnel URL changes every time you restart it. If you need a stable always-on public URL, use a paid/always-on host or an Oracle Cloud Always Free VM (free of charge, but signup requires card verification).
 
@@ -203,7 +220,7 @@ For any public deployment, always set:
 
 ```text
 SENTIMENTIQ_AUTH_ENABLED=true
-SENTIMENTIQ_ADMIN_PASSWORD=<strong-password>
+SENTIMENTIQ_ADMIN_PASSWORD=<strong-password-for-first-admin-only>
 SENTIMENTIQ_SECRET_KEY=<long-random-secret>
 SENTIMENTIQ_CORS_ORIGINS=https://your-public-domain
 ```

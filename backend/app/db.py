@@ -68,6 +68,22 @@ def init_db() -> None:
                 created_at TEXT NOT NULL,
                 FOREIGN KEY(run_id) REFERENCES runs(id) ON DELETE CASCADE
             );
+
+            CREATE TABLE IF NOT EXISTS users (
+                id TEXT PRIMARY KEY,
+                username TEXT NOT NULL COLLATE NOCASE UNIQUE,
+                email TEXT COLLATE NOCASE UNIQUE,
+                password_hash TEXT NOT NULL,
+                role TEXT NOT NULL DEFAULT 'analyst',
+                disabled INTEGER NOT NULL DEFAULT 0,
+                created_at TEXT NOT NULL,
+                last_login_at TEXT
+            );
+
+            CREATE TABLE IF NOT EXISTS settings (
+                key TEXT PRIMARY KEY,
+                value TEXT NOT NULL
+            );
             """
         )
 
@@ -242,3 +258,113 @@ def list_reports(limit: int = 50) -> list[dict]:
             "SELECT * FROM reports ORDER BY created_at DESC LIMIT ?", (limit,)
         ).fetchall()
     return [dict(r) for r in rows]
+
+
+# ---------------------------------------------------------------------------
+# Multi-user accounts
+# ---------------------------------------------------------------------------
+
+_USER_PUBLIC_COLUMNS = "id, username, email, role, disabled, created_at, last_login_at"
+
+
+def count_users() -> int:
+    with _lock, _connect() as conn:
+        return int(conn.execute("SELECT COUNT(*) FROM users").fetchone()[0])
+
+
+def count_admins() -> int:
+    with _lock, _connect() as conn:
+        return int(conn.execute("SELECT COUNT(*) FROM users WHERE role='admin' AND disabled=0").fetchone()[0])
+
+
+def list_users() -> list[dict]:
+    with _lock, _connect() as conn:
+        rows = conn.execute(
+            f"SELECT {_USER_PUBLIC_COLUMNS} FROM users ORDER BY created_at ASC"
+        ).fetchall()
+    return [
+        {**dict(r), "disabled": bool(r["disabled"])} for r in rows
+    ]
+
+
+def get_user_by_id(user_id: str) -> dict | None:
+    with _lock, _connect() as conn:
+        row = conn.execute("SELECT * FROM users WHERE id = ?", (user_id,)).fetchone()
+    return dict(row) if row else None
+
+
+def get_user_by_username(username: str) -> dict | None:
+    with _lock, _connect() as conn:
+        row = conn.execute(
+            "SELECT * FROM users WHERE username = ? COLLATE NOCASE", (username,)
+        ).fetchone()
+    return dict(row) if row else None
+
+
+def create_user(
+    user_id: str,
+    username: str,
+    email: str | None,
+    password_hash: str,
+    role: str = "analyst",
+    disabled: bool = False,
+) -> dict:
+    with _lock, _connect() as conn:
+        conn.execute(
+            "INSERT INTO users (id, username, email, password_hash, role, disabled, created_at) "
+            "VALUES (?,?,?,?,?,?,?)",
+            (user_id, username.strip(), (email or "").strip() or None, password_hash,
+             role, int(bool(disabled)), utcnow()),
+        )
+        row = conn.execute(
+            f"SELECT {_USER_PUBLIC_COLUMNS} FROM users WHERE id = ?", (user_id,)
+        ).fetchone()
+    return {**dict(row), "disabled": bool(row["disabled"])}
+
+
+def update_user(user_id: str, **changes) -> dict | None:
+    allowed = {"email", "role", "disabled"}
+    fields = [k for k in changes if k in allowed]
+    if not fields:
+        return get_user_by_id(user_id)
+    assignments = ", ".join(f"{k}=?" for k in fields)
+    values = [int(bool(changes[k])) if k == "disabled" else changes[k] for k in fields]
+    with _lock, _connect() as conn:
+        conn.execute(f"UPDATE users SET {assignments} WHERE id = ?", (*values, user_id))
+        row = conn.execute(
+            f"SELECT {_USER_PUBLIC_COLUMNS} FROM users WHERE id = ?", (user_id,)
+        ).fetchone()
+    if not row:
+        return None
+    return {**dict(row), "disabled": bool(row["disabled"])}
+
+
+def set_user_password(user_id: str, password_hash: str) -> None:
+    with _lock, _connect() as conn:
+        conn.execute("UPDATE users SET password_hash=? WHERE id=?", (password_hash, user_id))
+
+
+def delete_user(user_id: str) -> bool:
+    with _lock, _connect() as conn:
+        cur = conn.execute("DELETE FROM users WHERE id=?", (user_id,))
+    return cur.rowcount > 0
+
+
+def touch_login(user_id: str) -> None:
+    with _lock, _connect() as conn:
+        conn.execute("UPDATE users SET last_login_at=? WHERE id=?", (utcnow(), user_id))
+
+
+def get_setting(key: str) -> str | None:
+    with _lock, _connect() as conn:
+        row = conn.execute("SELECT value FROM settings WHERE key=?", (key,)).fetchone()
+    return row["value"] if row else None
+
+
+def set_setting(key: str, value: str) -> None:
+    with _lock, _connect() as conn:
+        conn.execute(
+            "INSERT INTO settings (key, value) VALUES (?,?) "
+            "ON CONFLICT(key) DO UPDATE SET value=excluded.value",
+            (key, value),
+        )

@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from 'react'
 import { CheckCircle2, Cpu, Database, DownloadCloud, Moon, RefreshCw, ShieldCheck, Sparkles, Sun } from 'lucide-react'
 import { api } from '../api'
 import { useApp } from '../context'
+import UserManagement from '../components/UserManagement'
 import { Badge, Card, ErrorBanner, InfoBanner, SectionTitle } from '../components/ui'
 
 const MODEL_LABELS = {
@@ -66,6 +67,8 @@ export default function Settings() {
         </div>
       </Card>
 
+      <UserManagement />
+
       <Card className="p-5">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div><h3 className="text-sm font-bold">AI models</h3><p className="muted text-xs">Real Hugging Face models are downloaded on demand and cached locally.</p></div>
@@ -108,7 +111,7 @@ export default function Settings() {
             <div className="flex items-center justify-between"><span className="muted">Upload size limit</span><b>{config?.max_file_size_mb || 25} MB</b></div>
             <div className="flex items-center justify-between"><span className="muted">Record limit</span><b>{config?.max_records || 10000}</b></div>
             <div className="flex items-center justify-between"><span className="muted">Allowed URL domains</span><b>{config?.allowed_domains?.length || 0}</b></div>
-            <p className="muted pt-2 leading-relaxed">Set SENTIMENTIQ_ADMIN_PASSWORD and SENTIMENTIQ_SECRET_KEY in the backend environment to enable secure sign-in. Uploads are extension-checked and URL fetches block private addresses and respect robots.txt.</p>
+            <p className="muted pt-2 leading-relaxed">Set SENTIMENTIQ_AUTH_ENABLED and SENTIMENTIQ_SECRET_KEY in the backend environment to enable sign-in. SENTIMENTIQ_ADMIN_PASSWORD seeds the first admin only. Uploads are extension-checked and URL fetches block private addresses and respect robots.txt.</p>
           </div>
         </Card>
 

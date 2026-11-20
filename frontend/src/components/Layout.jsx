@@ -2,7 +2,7 @@ import { useState } from 'react'
 import { NavLink, Outlet, useLocation } from 'react-router-dom'
 import {
   Activity, Bot, BrainCircuit, ChartNoAxesCombined, ChevronDown, CircleHelp,
-  FileBarChart2, FlaskConical, Hash, LayoutDashboard, Menu, Moon, Search,
+  FileBarChart2, FlaskConical, Hash, LayoutDashboard, LogOut, Menu, Moon, Search,
   Settings, ShieldAlert, Sparkles, Sun, X,
 } from 'lucide-react'
 import { useApp } from '../context'
@@ -73,7 +73,7 @@ function ActiveRun() {
 export default function Layout() {
   const [mobileOpen, setMobileOpen] = useState(false)
   const location = useLocation()
-  const { config } = useApp()
+  const { config, user, signOut } = useApp()
   const current = NAV.find((n) => n.end ? location.pathname === '/' : location.pathname.startsWith(n.to))
 
   return (
@@ -148,9 +148,16 @@ export default function Layout() {
               <Search size={14} /> Quick insights
             </div>
             <ThemeSwitcher />
+            {config?.auth_enabled && user && (
+              <button className="btn btn-secondary h-9 px-3" onClick={signOut}
+                title={`Signed in as ${user.username} (${user.role})`}>
+                <LogOut size={15} />
+                <span className="hidden md:inline">{user.username}</span>
+              </button>
+            )}
             <div className="flex h-9 w-9 items-center justify-center rounded-full text-xs font-bold"
               style={{ background: 'var(--primary-soft)', color: 'var(--primary)' }}>
-              SI
+              {(user?.username || 'SI').slice(0, 2).toUpperCase()}
             </div>
           </div>
         </header>

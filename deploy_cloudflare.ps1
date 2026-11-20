@@ -72,9 +72,9 @@ try {
 
     if ($generatedPassword) {
         Write-Host ""
-        Write-Host "Admin username : $env:SENTIMENTIQ_ADMIN_USER"
-        Write-Host "Admin password : $env:SENTIMENTIQ_ADMIN_PASSWORD"
-        Write-Host "Save this password now; it is generated fresh for each run and is not stored."
+        Write-Host "Initial admin  : $env:SENTIMENTIQ_ADMIN_USER"
+        Write-Host "Initial password: $env:SENTIMENTIQ_ADMIN_PASSWORD"
+        Write-Host "This seeds the first account only. If accounts already exist, sign in with one of them or reset a password in Settings."
         Write-Host ""
     }
 

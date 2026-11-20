@@ -1,4 +1,4 @@
-"""Optional single-tenant authentication with PBKDF2 + short-lived HMAC JWTs."""
+"""Multi-user authentication with PBKDF2 hashes and short-lived HMAC JWTs."""
 
 from __future__ import annotations
 
@@ -9,16 +9,27 @@ import json
 import os
 import threading
 import time
-from typing import Any
+from typing import Any, Callable
 
 from fastapi import Depends, HTTPException, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 
-from .config import ADMIN_PASSWORD, ADMIN_USERNAME, AUTH_ENABLED, SECRET_KEY, TOKEN_TTL_SECONDS
+from . import db
+from .config import (
+    ADMIN_PASSWORD,
+    ADMIN_USERNAME,
+    AUTH_ENABLED,
+    SECRET_KEY,
+    TOKEN_TTL_SECONDS,
+)
+from .utils import new_id
 
 bearer = HTTPBearer(auto_error=False)
 _failures: dict[str, list[float]] = {}
 _fail_lock = threading.Lock()
+
+ROLES = ("admin", "analyst", "viewer")
+WRITE_ROLES = ("admin", "analyst")
 
 
 def _b64(data: bytes) -> str:
@@ -48,33 +59,52 @@ def verify_password(password: str, encoded: str) -> bool:
         return False
 
 
-def ensure_admin_password() -> str | None:
-    """Persist a hash of the configured admin password on first run."""
-    if not ADMIN_PASSWORD:
-        return None
-    from .db import _connect, _lock
-
-    with _lock, _connect() as conn:
-        conn.execute(
-            "CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value TEXT NOT NULL)"
-        )
-        row = conn.execute(
-            "SELECT value FROM settings WHERE key='admin_password_hash'"
-        ).fetchone()
-        if row:
-            return row["value"]
-        encoded = hash_password(ADMIN_PASSWORD)
-        conn.execute(
-            "INSERT INTO settings (key, value) VALUES ('admin_password_hash', ?)",
-            (encoded,),
-        )
-        return encoded
+def _public_user(user: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "id": user["id"],
+        "username": user["username"],
+        "email": user.get("email") or "",
+        "role": user["role"],
+        "disabled": bool(user.get("disabled", False)),
+    }
 
 
-def create_token(username: str) -> str:
+def _validate_credentials(username: str, password: str) -> None:
+    if len(username.strip()) < 3:
+        raise ValueError("Username must be at least 3 characters")
+    if len(password) < 8:
+        raise ValueError("Password must be at least 8 characters")
+
+
+def bootstrap_users() -> None:
+    """Seed the environment admin or migrate the legacy single-admin hash."""
+    db.init_db()
+    if db.get_user_by_username(ADMIN_USERNAME):
+        return
+    if ADMIN_PASSWORD:
+        db.create_user(new_id("usr_"), ADMIN_USERNAME, None, hash_password(ADMIN_PASSWORD), "admin")
+        return
+    if db.count_users():
+        return
+    legacy_hash = db.get_setting("admin_password_hash")
+    if legacy_hash:
+        db.create_user(new_id("usr_"), ADMIN_USERNAME, None, legacy_hash, "admin")
+
+
+# Kept as an alias for older deployments that call this at startup.
+ensure_admin_password = bootstrap_users
+
+
+def create_token(user: dict[str, Any]) -> str:
     now = int(time.time())
     header = {"alg": "HS256", "typ": "JWT"}
-    payload = {"sub": username, "iat": now, "exp": now + TOKEN_TTL_SECONDS}
+    payload = {
+        "sub": user["username"],
+        "uid": user["id"],
+        "role": user["role"],
+        "iat": now,
+        "exp": now + TOKEN_TTL_SECONDS,
+    }
     head = _b64(json.dumps(header, separators=(",", ":")).encode())
     body = _b64(json.dumps(payload, separators=(",", ":")).encode())
     signature = _b64(
@@ -112,28 +142,76 @@ def _record_failure(key: str) -> None:
         _failures.setdefault(key, []).append(time.time())
 
 
-def authenticate(username: str, password: str, client_key: str = "local") -> str | None:
-    if _rate_limited(client_key):
-        return None
-    encoded = ensure_admin_password()
-    if not encoded:
-        return None
-    valid = hmac.compare_digest(username, ADMIN_USERNAME) and verify_password(
-        password, encoded
-    )
-    if not valid:
-        _record_failure(client_key)
-        return None
+def _clear_failures(key: str) -> None:
     with _fail_lock:
-        _failures.pop(client_key, None)
-    return create_token(username)
+        _failures.pop(key, None)
+
+
+def register_first_admin(username: str, email: str, password: str) -> tuple[str, dict[str, Any]]:
+    if db.count_users():
+        raise ValueError("Accounts already exist. Ask an administrator to add you.")
+    _validate_credentials(username, password)
+    user = db.create_user(
+        new_id("usr_"), username, email, hash_password(password), "admin"
+    )
+    return create_token(user), _public_user(user)
+
+
+def register_user(
+    username: str, email: str, password: str, role: str = "analyst"
+) -> dict[str, Any]:
+    _validate_credentials(username, password)
+    if role not in ROLES:
+        raise ValueError(f"Role must be one of: {', '.join(ROLES)}")
+    try:
+        return db.create_user(
+            new_id("usr_"), username, email, hash_password(password), role
+        )
+    except Exception as exc:
+        raise ValueError("Username or email is already in use") from exc
+
+
+def authenticate(
+    username: str, password: str, client_key: str = "unknown"
+) -> tuple[str | None, dict[str, Any] | None]:
+    key = f"{client_key}:{username.lower()}"
+    if _rate_limited(key):
+        return None, None
+    user = db.get_user_by_username(username)
+    if not user or user["disabled"] or not verify_password(password, user["password_hash"]):
+        _record_failure(key)
+        return None, None
+    db.touch_login(user["id"])
+    _clear_failures(key)
+    return create_token(user), _public_user(user)
+
+
+def change_password(
+    user_id: str, new_password: str, current_password: str | None = None
+) -> None:
+    if len(str(new_password or "")) < 8:
+        raise ValueError("Password must be at least 8 characters")
+    user = db.get_user_by_id(user_id)
+    if not user:
+        raise ValueError("User not found")
+    if current_password is not None and not verify_password(
+        current_password, user["password_hash"]
+    ):
+        raise ValueError("Current password is incorrect")
+    db.set_user_password(user_id, hash_password(new_password))
 
 
 async def current_user(
     creds: HTTPAuthorizationCredentials | None = Depends(bearer),
-) -> dict[str, str] | None:
+) -> dict[str, Any]:
     if not AUTH_ENABLED:
-        return {"username": "demo", "role": "demo"}
+        return {
+            "id": "local",
+            "username": "demo",
+            "email": "",
+            "role": "admin",
+            "disabled": False,
+        }
     if creds is None:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED, detail="Authentication required"
@@ -143,4 +221,24 @@ async def current_user(
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid or expired token"
         )
-    return {"username": payload["sub"], "role": "admin"}
+    user = db.get_user_by_id(str(payload.get("uid", "")))
+    if not user or user["disabled"]:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED, detail="Account is unavailable"
+        )
+    return _public_user(user)
+
+
+def require_roles(*roles: str) -> Callable[..., Any]:
+    async def dependency(user: dict[str, Any] = Depends(current_user)) -> dict[str, Any]:
+        if user["role"] not in roles:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN, detail="Insufficient permissions"
+            )
+        return user
+
+    return dependency
+
+
+require_admin = require_roles("admin")
+require_writer = require_roles(*WRITE_ROLES)

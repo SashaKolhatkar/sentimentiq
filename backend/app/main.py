@@ -12,11 +12,31 @@ from fastapi.responses import FileResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 
 from . import config, db, models, reports, store
-from .auth import authenticate, current_user
+from .auth import (
+    ROLES,
+    authenticate,
+    bootstrap_users,
+    change_password,
+    current_user,
+    register_first_admin,
+    register_user,
+    require_admin,
+    require_writer,
+)
 from .demo_data import demo_records
 from .ingestion import build_preview
 from .jobs import start_job
-from .schemas import AnalyzeRequest, LoginRequest, TextRequest, UrlRequest
+from .schemas import (
+    AnalyzeRequest,
+    LoginRequest,
+    PasswordChangeRequest,
+    PasswordResetRequest,
+    RegisterRequest,
+    TextRequest,
+    UrlRequest,
+    UserCreateRequest,
+    UserUpdateRequest,
+)
 from .utils import new_id, to_jsonable
 
 app = FastAPI(
@@ -37,9 +57,7 @@ app.add_middleware(
 @app.on_event("startup")
 def startup() -> None:
     db.init_db()
-    from .auth import ensure_admin_password
-
-    ensure_admin_password()
+    bootstrap_users()
 
 
 @app.exception_handler(Exception)
@@ -65,6 +83,7 @@ def health() -> dict[str, Any]:
 def public_config() -> dict[str, Any]:
     return {
         "auth_enabled": config.AUTH_ENABLED,
+        "registration_open": config.AUTH_ENABLED and db.count_users() == 0,
         "themes": config.THEMES,
         "source_types": config.SOURCE_TYPES,
         "allowed_domains": config.ALLOWED_URL_DOMAINS,
@@ -86,17 +105,109 @@ def public_config() -> dict[str, Any]:
 @app.post("/api/auth/login")
 def login(payload: LoginRequest, request: Request) -> dict[str, Any]:
     if not config.AUTH_ENABLED:
-        return {"token": None, "user": {"username": "demo", "role": "demo"}, "auth_disabled": True}
+        return {
+            "token": None,
+            "user": {"id": "local", "username": "demo", "email": "", "role": "admin"},
+            "auth_disabled": True,
+        }
     client_key = request.client.host if request.client else "unknown"
-    token = authenticate(payload.username, payload.password, client_key)
-    if not token:
+    token, user = authenticate(payload.username, payload.password, client_key)
+    if not token or not user:
         raise HTTPException(status_code=401, detail="Invalid credentials or too many attempts")
-    return {"token": token, "user": {"username": payload.username, "role": "admin"}, "auth_disabled": False}
+    return {"token": token, "user": user, "auth_disabled": False}
+
+
+@app.post("/api/auth/register")
+def register(payload: RegisterRequest) -> dict[str, Any]:
+    if not config.AUTH_ENABLED:
+        raise HTTPException(status_code=400, detail="Registration is disabled in local demo mode")
+    try:
+        token, user = register_first_admin(payload.username, payload.email, payload.password)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return {"token": token, "user": user, "auth_disabled": False}
 
 
 @app.get("/api/auth/me")
-def me(user: dict[str, str] = Depends(current_user)) -> dict[str, str]:
+def me(user: dict[str, Any] = Depends(current_user)) -> dict[str, Any]:
     return user
+
+
+@app.post("/api/auth/password")
+def update_own_password(
+    payload: PasswordChangeRequest, user: dict[str, Any] = Depends(current_user)
+) -> dict[str, bool]:
+    if not config.AUTH_ENABLED:
+        raise HTTPException(status_code=400, detail="Password changes require authentication to be enabled")
+    try:
+        change_password(user["id"], payload.new_password, payload.current_password)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return {"changed": True}
+
+
+@app.get("/api/users")
+def list_users(admin: dict[str, Any] = Depends(require_admin)) -> dict[str, Any]:
+    return {"users": db.list_users(), "roles": list(ROLES)}
+
+
+@app.post("/api/users")
+def add_user(
+    payload: UserCreateRequest, admin: dict[str, Any] = Depends(require_admin)
+) -> dict[str, Any]:
+    if payload.role not in ROLES:
+        raise HTTPException(status_code=400, detail=f"Role must be one of: {', '.join(ROLES)}")
+    try:
+        return {"user": register_user(payload.username, payload.email, payload.password, payload.role)}
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@app.patch("/api/users/{user_id}")
+def edit_user(
+    user_id: str,
+    payload: UserUpdateRequest,
+    admin: dict[str, Any] = Depends(require_admin),
+) -> dict[str, Any]:
+    target = db.get_user_by_id(user_id)
+    if not target:
+        raise HTTPException(status_code=404, detail="User not found")
+    if payload.role is not None and payload.role not in ROLES:
+        raise HTTPException(status_code=400, detail=f"Role must be one of: {', '.join(ROLES)}")
+    if target["role"] == "admin" and db.count_admins() <= 1:
+        if payload.role is not None and payload.role != "admin":
+            raise HTTPException(status_code=400, detail="At least one admin account must remain")
+        if payload.disabled is True:
+            raise HTTPException(status_code=400, detail="At least one admin account must remain")
+    changes = payload.model_dump(exclude_none=True)
+    updated = db.update_user(user_id, **changes)
+    return {"user": updated}
+
+
+@app.delete("/api/users/{user_id}")
+def remove_user(
+    user_id: str, admin: dict[str, Any] = Depends(require_admin)
+) -> dict[str, bool]:
+    target = db.get_user_by_id(user_id)
+    if not target:
+        raise HTTPException(status_code=404, detail="User not found")
+    if user_id == admin["id"]:
+        raise HTTPException(status_code=400, detail="You cannot delete your own account")
+    if target["role"] == "admin" and db.count_admins() <= 1:
+        raise HTTPException(status_code=400, detail="At least one admin account must remain")
+    return {"deleted": db.delete_user(user_id)}
+
+
+@app.post("/api/users/{user_id}/password")
+def reset_user_password(
+    user_id: str,
+    payload: PasswordResetRequest,
+    admin: dict[str, Any] = Depends(require_admin),
+) -> dict[str, bool]:
+    if not db.get_user_by_id(user_id):
+        raise HTTPException(status_code=404, detail="User not found")
+    change_password(user_id, payload.new_password)
+    return {"changed": True}
 
 
 @app.post("/api/ingest/preview")
@@ -149,7 +260,7 @@ def get_demo_dataset(user: dict[str, str] = Depends(current_user)) -> dict[str, 
 
 
 @app.post("/api/analyze")
-async def analyze(payload: AnalyzeRequest, user: dict[str, str] = Depends(current_user)) -> dict[str, str]:
+async def analyze(payload: AnalyzeRequest, user: dict[str, Any] = Depends(require_writer)) -> dict[str, str]:
     dataset_id = payload.dataset_id
     source_type = "manual"
     is_demo = False
@@ -233,7 +344,7 @@ def get_run_records(
 
 
 @app.delete("/api/runs/{run_id}")
-def remove_run(run_id: str, user: dict[str, str] = Depends(current_user)) -> dict[str, bool]:
+def remove_run(run_id: str, user: dict[str, Any] = Depends(require_writer)) -> dict[str, bool]:
     deleted = db.delete_run(run_id)
     store.delete_run_records(run_id)
     return {"deleted": deleted}

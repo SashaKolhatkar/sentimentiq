@@ -1,5 +1,5 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react'
-import { api } from './api'
+import { api, getToken, setToken } from './api'
 
 const AppContext = createContext(null)
 
@@ -17,6 +17,7 @@ export function AppProvider({ children }) {
     }
   })
   const [runs, setRuns] = useState([])
+  const [user, setUser] = useState(null)
   const [toasts, setToasts] = useState([])
   const [bootError, setBootError] = useState('')
 
@@ -37,6 +38,12 @@ export function AppProvider({ children }) {
     // rehydrate the summary through the paginated API when the app reloads.
     if (next) localStorage.setItem(RUN_KEY, JSON.stringify({ id: next.id }))
     else localStorage.removeItem(RUN_KEY)
+  }, [])
+
+  const signOut = useCallback(() => {
+    setToken(null)
+    setUser(null)
+    window.location.reload()
   }, [])
 
   const refreshRuns = useCallback(async () => {
@@ -68,21 +75,30 @@ export function AppProvider({ children }) {
 
   useEffect(() => {
     let cancelled = false
-    Promise.allSettled([api.config(), api.runs()]).then(([cfg, r]) => {
+    ;(async () => {
+      const [cfg, r] = await Promise.allSettled([api.config(), api.runs()])
       if (cancelled) return
       if (cfg.status === 'fulfilled') setConfig(cfg.value)
       else setBootError(cfg.reason?.message || 'Configuration could not be loaded')
       if (r.status === 'fulfilled') setRuns(r.value.runs || [])
-    })
+      if (cfg.status === 'fulfilled' && cfg.value.auth_enabled && getToken()) {
+        try {
+          const me = await api.me()
+          if (!cancelled) setUser(me)
+        } catch {
+          // The API client clears expired tokens and reloads into the login screen.
+        }
+      }
+    })()
     return () => { cancelled = true }
   }, [])
 
   const value = useMemo(
     () => ({
       theme, setTheme, config, run, setRun, runs, setRuns, refreshRuns,
-      toasts, notify, bootError,
+      user, setUser, signOut, toasts, notify, bootError,
     }),
-    [theme, setTheme, config, run, setRun, runs, refreshRuns, toasts, notify, bootError],
+    [theme, setTheme, config, run, setRun, runs, refreshRuns, user, signOut, toasts, notify, bootError],
   )
 
   return <AppContext.Provider value={value}>{children}</AppContext.Provider>

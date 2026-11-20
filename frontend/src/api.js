@@ -48,6 +48,28 @@ export const api = {
       method: 'POST',
       body: JSON.stringify({ username, password }),
     }),
+  register: (username, email, password) =>
+    request('/auth/register', {
+      method: 'POST',
+      body: JSON.stringify({ username, email, password }),
+    }),
+  me: () => request('/auth/me'),
+  changePassword: (currentPassword, newPassword) =>
+    request('/auth/password', {
+      method: 'POST',
+      body: JSON.stringify({ current_password: currentPassword, new_password: newPassword }),
+    }),
+  users: () => request('/users'),
+  createUser: (payload) =>
+    request('/users', { method: 'POST', body: JSON.stringify(payload) }),
+  updateUser: (id, payload) =>
+    request(`/users/${id}`, { method: 'PATCH', body: JSON.stringify(payload) }),
+  resetUserPassword: (id, newPassword) =>
+    request(`/users/${id}/password`, {
+      method: 'POST',
+      body: JSON.stringify({ new_password: newPassword }),
+    }),
+  deleteUser: (id) => request(`/users/${id}`, { method: 'DELETE' }),
   config: () => request('/config'),
   health: () => request('/health'),
   models: () => request('/models/status'),

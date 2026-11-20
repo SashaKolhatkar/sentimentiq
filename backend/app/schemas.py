@@ -58,6 +58,67 @@ class LoginRequest(BaseModel):
     password: str
 
 
+def _clean_username(value: str) -> str:
+    value = " ".join(str(value or "").split())
+    if len(value) < 3:
+        raise ValueError("Username must be at least 3 characters")
+    if len(value) > 64:
+        raise ValueError("Username must be at most 64 characters")
+    return value
+
+
+def _clean_password(value: str) -> str:
+    if len(str(value or "")) < 8:
+        raise ValueError("Password must be at least 8 characters")
+    if len(str(value)) > 256:
+        raise ValueError("Password must be at most 256 characters")
+    return value
+
+
+def _clean_email(value: str | None) -> str | None:
+    value = (value or "").strip()
+    if not value:
+        return None
+    if "@" not in value or "." not in value.split("@")[-1]:
+        raise ValueError("Enter a valid email address")
+    return value[:254]
+
+
+class RegisterRequest(BaseModel):
+    username: str
+    email: str | None = None
+    password: str
+
+    _username = field_validator("username")(_clean_username)
+    _email = field_validator("email")(_clean_email)
+    _password = field_validator("password")(_clean_password)
+
+
+class UserCreateRequest(RegisterRequest):
+    role: str = "analyst"
+
+
+class UserUpdateRequest(BaseModel):
+    email: str | None = None
+    role: str | None = None
+    disabled: bool | None = None
+
+    _email = field_validator("email")(_clean_email)
+
+
+class PasswordChangeRequest(BaseModel):
+    current_password: str
+    new_password: str
+
+    _new_password = field_validator("new_password")(_clean_password)
+
+
+class PasswordResetRequest(BaseModel):
+    new_password: str
+
+    _new_password = field_validator("new_password")(_clean_password)
+
+
 class UrlRequest(BaseModel):
     url: str
 
