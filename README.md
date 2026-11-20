@@ -166,7 +166,7 @@ The repository is published at **https://github.com/SashaKolhatkar/sentimentiq**
 
 To work with it in VS Code:
 
-1. Clone the URL above: `git clone https://github.com/Hyewoojiho/sentimentiq.git`.
+1. Clone the URL above: `git clone https://github.com/SashaKolhatkar/sentimentiq.git`.
 2. Open the folder in VS Code. The Source Control panel shows changes, and the **Publish to GitHub** button can also create a fork if you want your own copy.
 3. Commit with a message such as `Update SentimentIQ`, then **Sync Changes** (`Ctrl+Shift+P → Git: Sync`).
 4. The included `.github/workflows/ci.yml` builds the frontend and compiles the backend on every push.
