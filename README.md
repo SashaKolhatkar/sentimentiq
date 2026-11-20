@@ -153,18 +153,33 @@ To work with it in VS Code:
 
 ## Deployment
 
-The project includes a production `Dockerfile` that builds the Vite SPA and serves it from FastAPI on port 8000. It also includes `render.yaml` for a one-click Render blueprint.
+The project includes a production `Dockerfile` that builds the Vite SPA and serves it from FastAPI. It respects the `PORT` environment variable and defaults to `8000`, so it works on ordinary container hosts.
 
-### Render
+### Cloudflare quick tunnel (no payment, recommended for this machine)
 
-1. Sign in to Render and choose **New + → Blueprint**.
-2. Connect the GitHub repository and select `sentimentiq`.
-3. Render reads `render.yaml` and deploys on the **free Docker plan** with no paid disk. It generates the admin password and secret key.
-4. Open `https://sentimentiq.onrender.com`, log in with the generated `SENTIMENTIQ_ADMIN_USER` / `SENTIMENTIQ_ADMIN_PASSWORD`, then call **Settings → AI models → Download all models** once (or `POST /api/models/warm`).
+Hugging Face Spaces now requires a paid plan for Docker, and Render’s free container has only 0.1 CPU / 512 MB RAM, which is too small for the transformer models. The reliable no-payment option is to run the already-installed app on your own machine and expose it through a free Cloudflare quick tunnel. Your local model cache and SQLite history stay intact.
 
-Free-plan notes: the instance sleeps when idle, and `backend/data` is ephemeral, so runs and the model cache are lost on restart/redeploy. The app rebuilds the cache automatically on first use. For persistent runs, upgrade the service and re-add a disk mounted at `/app/backend/data`.
+1. Install the tunnel client once:
 
-The same Docker image works on Railway, Fly.io, Azure Container Apps, Hugging Face Spaces or any container host. For a public deployment, always set:
+   ```powershell
+   winget install --id Cloudflare.cloudflared
+   ```
+
+2. From the project root, run:
+
+   ```powershell
+   powershell -ExecutionPolicy Bypass -File .\deploy_cloudflare.ps1
+   ```
+
+3. The script starts the backend on port `8011`, enables authentication, generates an admin password, and prints a public `https://*.trycloudflare.com` URL. Keep the window open while sharing the link. Press `Ctrl+C` to stop both the tunnel and backend.
+
+The quick-tunnel URL changes every time you restart it. If you need a stable always-on public URL, use a paid/always-on host or an Oracle Cloud Always Free VM (free of charge, but signup requires card verification).
+
+### Container hosts (optional)
+
+The Dockerfile runs as UID 1000 with a writable `/app/backend/data` directory and works on Render, Railway, Fly.io or any Docker host. `render.yaml` uses the free Render plan without a paid disk, but its 512 MB RAM is below what the four Hugging Face models need, so it is not recommended for full analysis jobs.
+
+For any public deployment, always set:
 
 ```text
 SENTIMENTIQ_AUTH_ENABLED=true

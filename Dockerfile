@@ -11,6 +11,7 @@ FROM python:3.11-slim
 ENV PYTHONUNBUFFERED=1 \
     PIP_NO_CACHE_DIR=1 \
     HF_HOME=/app/backend/data/models \
+    HF_HUB_CACHE=/app/backend/data/models/hub \
     TRANSFORMERS_CACHE=/app/backend/data/models/hub \
     HF_HUB_DISABLE_TELEMETRY=1 \
     HF_HUB_DISABLE_SYMLINKS_WARNING=1 \
@@ -28,8 +29,14 @@ RUN python -m pip install --upgrade pip \
 
 COPY backend/ /app/backend/
 COPY --from=frontend /app/frontend/dist /app/frontend/dist
-RUN mkdir -p /app/backend/data
+RUN useradd -m -u 1000 user \
+    && mkdir -p /app/backend/data \
+    && chown -R user:user /app
+
+USER user
+ENV HOME=/home/user \
+    PATH=/home/user/.local/bin:$PATH
 
 WORKDIR /app/backend
-EXPOSE 8000
-CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
+EXPOSE 7860 8000
+CMD ["sh", "-c", "uvicorn app.main:app --host 0.0.0.0 --port \"${PORT:-8000}\""]
