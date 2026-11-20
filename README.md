@@ -159,10 +159,12 @@ The project includes a production `Dockerfile` that builds the Vite SPA and serv
 
 1. Sign in to Render and choose **New + → Blueprint**.
 2. Connect the GitHub repository and select `sentimentiq`.
-3. Render reads `render.yaml`, creates a persistent disk at `/app/backend/data`, and generates the admin password and secret key.
+3. Render reads `render.yaml` and deploys on the **free Docker plan** with no paid disk. It generates the admin password and secret key.
 4. Open `https://sentimentiq.onrender.com`, log in with the generated `SENTIMENTIQ_ADMIN_USER` / `SENTIMENTIQ_ADMIN_PASSWORD`, then call **Settings → AI models → Download all models** once (or `POST /api/models/warm`).
 
-The same Docker image works on Railway, Fly.io, Azure Container Apps or any container host. Provide a persistent volume for `/app/backend/data` so runs and the HF cache survive restarts. For a public deployment, always set:
+Free-plan notes: the instance sleeps when idle, and `backend/data` is ephemeral, so runs and the model cache are lost on restart/redeploy. The app rebuilds the cache automatically on first use. For persistent runs, upgrade the service and re-add a disk mounted at `/app/backend/data`.
+
+The same Docker image works on Railway, Fly.io, Azure Container Apps, Hugging Face Spaces or any container host. For a public deployment, always set:
 
 ```text
 SENTIMENTIQ_AUTH_ENABLED=true

@@ -2,13 +2,9 @@ services:
   - type: web
     name: sentimentiq
     runtime: docker
-    plan: starter
+    plan: free
     dockerfilePath: ./Dockerfile
     healthCheckPath: /api/health
-    disk:
-      name: sentimentiq-data
-      mountPath: /app/backend/data
-      sizeGB: 5
     envVars:
       - key: PYTHONUNBUFFERED
         value: "1"
