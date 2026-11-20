@@ -1,0 +1,11 @@
+id,text,platform,author,timestamp,likes,verified,followers,following,account_age_days
+1,"Product quality is excellent, but delivery was very slow.",e-commerce,shopper_01,2026-11-01T09:12:00Z,4,true,12,40,820
+2,"Customer support responded in minutes and solved my issue. Great service!",X,tech_with_sara,2026-11-01T13:20:00Z,18,false,820,190,410
+3,"The packaging was damaged and the item arrived late. Very disappointed.",Google Reviews,mrdaniels,2026-11-01T11:45:00Z,1,false,15,30,120
+4,"Works well. Good quality.",Google Reviews,quickreview1,2026-11-02T19:00:00Z,0,false,2,900,3
+5,"Works well. Good quality.",Google Reviews,quickreview1,2026-11-02T19:01:00Z,0,false,2,900,3
+6,"Works well. Good quality.",Google Reviews,quickreview1,2026-11-02T19:02:00Z,0,false,2,900,3
+7,"BUY NOW limited time discount! Click here for the best price and free shipping.",Facebook,promo_deals_daily,2026-11-02T19:03:00Z,2,false,8,1500,4
+8,"Battery life is amazing but the app is confusing to set up.",Reddit,pixel_tinker,2026-11-01T15:02:00Z,9,false,140,80,260
+9,"I hope they add dark mode and a better mobile layout in the next update.",Reddit,feature_fan,2026-11-04T16:15:00Z,12,false,310,95,540
+10,"Terrible experience. Rude staff and no refund after three weeks.",X,consumer_watch,2026-11-02T14:50:00Z,33,false,3300,88,220

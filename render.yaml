@@ -1,0 +1,32 @@
+services:
+  - type: web
+    name: sentimentiq
+    runtime: docker
+    plan: starter
+    dockerfilePath: ./Dockerfile
+    healthCheckPath: /api/health
+    disk:
+      name: sentimentiq-data
+      mountPath: /app/backend/data
+      sizeGB: 5
+    envVars:
+      - key: PYTHONUNBUFFERED
+        value: "1"
+      - key: SENTIMENTIQ_AUTH_ENABLED
+        value: "true"
+      - key: SENTIMENTIQ_ADMIN_USER
+        value: admin
+      - key: SENTIMENTIQ_ADMIN_PASSWORD
+        generateValue: true
+      - key: SENTIMENTIQ_SECRET_KEY
+        generateValue: true
+      - key: SENTIMENTIQ_CORS_ORIGINS
+        value: "https://sentimentiq.onrender.com"
+      - key: SENTIMENTIQ_MAX_FILE_MB
+        value: "200"
+      - key: SENTIMENTIQ_MAX_RECORDS
+        value: "250000"
+      - key: SENTIMENTIQ_ANALYZE_LIMIT
+        value: "100000"
+      - key: SENTIMENTIQ_DEVICE
+        value: "-1"
