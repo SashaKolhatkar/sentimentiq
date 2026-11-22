@@ -218,6 +218,20 @@ The included `.github/workflows/deploy.yml` rebuilds and redeploys the app over 
 
 An Oracle Cloud **Always Free** Ubuntu ARM VM is the recommended target: it has enough RAM for the transformer models, unlike the Render/Railway free plans. Oracle signup is free but asks for card verification. The workflow also works with any Linux VM that has Docker, Docker Compose and Git installed.
 
+Oracle-specific setup:
+
+1. In the Oracle Cloud console, create an **Instance** with **Ubuntu 24.04** and the **VM.Standard.A1.Flex** shape. Set 4 OCPUs / 24 GB RAM (still Always Free) and a 50 GB boot volume. If A1 capacity is temporarily unavailable, retry later rather than choosing the 1 GB E2.1.Micro shape, which cannot run the models.
+2. Generate a dedicated deploy key on your computer:
+
+   ```powershell
+   ssh-keygen -t ed25519 -C "sentimentiq-deploy" -f "$env:USERPROFILE\.ssh\sentimentiq_deploy"
+   Get-Content "$env:USERPROFILE\.ssh\sentimentiq_deploy.pub"
+   ```
+
+   Paste the `.pub` output as the instance’s SSH public key. The private key (the file without `.pub`) becomes the `DEPLOY_SSH_KEY` repository secret.
+3. Note the instance’s public IP. Add an ingress rule for TCP `8000` in the VCN security list (or your chosen `DEPLOY_PORT`).
+4. SSH in as `ubuntu` and run the one-time setup below.
+
 One-time VM setup:
 
 ```bash
