@@ -42,6 +42,7 @@ export default function Analyze() {
       if (mode === 'demo') {
         const data = await api.demo()
         setPreview({
+          count: data.count,
           records: data.records,
           preview: data.records.slice(0, 10).map((r) => ({ ...r, text: r.text.slice(0, 300) })),
           warnings: [data.notice],
