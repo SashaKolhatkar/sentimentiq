@@ -212,6 +212,50 @@ Hugging Face Spaces now requires a paid plan for Docker, and Render’s free con
 
 The quick-tunnel URL changes every time you restart it. If you need a stable always-on public URL, use a paid/always-on host or an Oracle Cloud Always Free VM (free of charge, but signup requires card verification).
 
+### GitHub Actions to a free Linux VM (recommended for always-on free hosting)
+
+The included `.github/workflows/deploy.yml` rebuilds and redeploys the app over SSH on every push to `main` (and can also be run manually from the Actions tab). The workflow uses GitHub-hosted runners and never stores your VM key in the repository.
+
+An Oracle Cloud **Always Free** Ubuntu ARM VM is the recommended target: it has enough RAM for the transformer models, unlike the Render/Railway free plans. Oracle signup is free but asks for card verification. The workflow also works with any Linux VM that has Docker, Docker Compose and Git installed.
+
+One-time VM setup:
+
+```bash
+sudo apt-get update
+sudo apt-get install -y docker.io docker-compose-plugin git curl
+sudo usermod -aG docker "$USER"
+newgrp docker
+mkdir -p /opt/sentimentiq
+git clone https://github.com/SashaKolhatkar/sentimentiq.git /opt/sentimentiq
+```
+
+Open your VM’s `PORT` (default `8000`) in its firewall/network security rules.
+
+Then add these secrets under **GitHub repository → Settings → Secrets and variables → Actions → New repository secret**:
+
+| Secret | Value |
+| --- | --- |
+| `DEPLOY_HOST` | Public IP or DNS name of the VM |
+| `DEPLOY_USER` | SSH user (for Oracle Ubuntu images this is usually `ubuntu`) |
+| `DEPLOY_SSH_KEY` | Contents of the private SSH key authorized on the VM |
+| `DEPLOY_PATH` | Clone path, e.g. `/opt/sentimentiq` |
+| `DEPLOY_SSH_PORT` | SSH port, optional (defaults to `22`) |
+| `DEPLOY_PORT` | App port, optional (defaults to `8000`) |
+| `PUBLIC_ORIGIN` | `http://VM_IP:8000` or your HTTPS domain |
+| `SENTIMENTIQ_ADMIN_USER` | First admin username, optional (defaults to `admin`) |
+| `SENTIMENTIQ_ADMIN_PASSWORD` | Strong first-admin password |
+| `SENTIMENTIQ_SECRET_KEY` | Long random signing secret |
+
+Generate the last two values locally, for example:
+
+```powershell
+[Convert]::ToBase64String((1..32 | ForEach-Object { Get-Random -Max 256 }) -as [byte[]])
+```
+
+After the secrets are added, push to `main` or run the **Deploy to free Linux host** workflow manually. The workflow writes a server-only `.env`, pulls the repo, rebuilds the Compose image, starts it, and waits for `/api/health`. Logs are printed automatically if the health check fails.
+
+> `SENTIMENTIQ_ADMIN_PASSWORD` seeds only the first account. After the first deployment, change passwords and add accounts in **Settings → Users & access**. The SQLite database and downloaded models live in the `sentimentiq-data` Docker volume, so they survive redeploys.
+
 ### Container hosts (optional)
 
 The Dockerfile runs as UID 1000 with a writable `/app/backend/data` directory and works on Render, Railway, Fly.io or any Docker host. `render.yaml` uses the free Render plan without a paid disk, but its 512 MB RAM is below what the four Hugging Face models need, so it is not recommended for full analysis jobs.

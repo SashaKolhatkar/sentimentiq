@@ -1,0 +1,98 @@
+name: Deploy to free Linux host
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: production-deploy
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+
+    steps:
+      - name: Validate deployment secrets
+        env:
+          DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
+          DEPLOY_USER: ${{ secrets.DEPLOY_USER }}
+          DEPLOY_SSH_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
+          DEPLOY_PATH: ${{ secrets.DEPLOY_PATH }}
+          SENTIMENTIQ_ADMIN_PASSWORD: ${{ secrets.SENTIMENTIQ_ADMIN_PASSWORD }}
+          SENTIMENTIQ_SECRET_KEY: ${{ secrets.SENTIMENTIQ_SECRET_KEY }}
+        run: |
+          missing=0
+          for name in DEPLOY_HOST DEPLOY_USER DEPLOY_SSH_KEY DEPLOY_PATH SENTIMENTIQ_ADMIN_PASSWORD SENTIMENTIQ_SECRET_KEY; do
+            if [ -z "${!name}" ]; then
+              echo "::error::Missing repository secret: $name"
+              missing=1
+            fi
+          done
+          exit "$missing"
+
+      - name: Configure SSH
+        env:
+          DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
+          DEPLOY_USER: ${{ secrets.DEPLOY_USER }}
+          DEPLOY_SSH_PORT: ${{ secrets.DEPLOY_SSH_PORT || '22' }}
+          DEPLOY_SSH_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
+        run: |
+          mkdir -p ~/.ssh
+          chmod 700 ~/.ssh
+          printf '%s\n' "$DEPLOY_SSH_KEY" > ~/.ssh/sentimentiq_deploy
+          chmod 600 ~/.ssh/sentimentiq_deploy
+          printf 'Host sentimentiq-prod\n  HostName %s\n  User %s\n  Port %s\n  IdentityFile ~/.ssh/sentimentiq_deploy\n  IdentitiesOnly yes\n  StrictHostKeyChecking accept-new\n' \
+            "$DEPLOY_HOST" "$DEPLOY_USER" "$DEPLOY_SSH_PORT" > ~/.ssh/config
+
+      - name: Write production environment file
+        env:
+          PORT: ${{ secrets.DEPLOY_PORT || '8000' }}
+          ADMIN_USER: ${{ secrets.SENTIMENTIQ_ADMIN_USER || 'admin' }}
+          ADMIN_PASSWORD: ${{ secrets.SENTIMENTIQ_ADMIN_PASSWORD }}
+          SECRET_KEY: ${{ secrets.SENTIMENTIQ_SECRET_KEY }}
+          PUBLIC_ORIGIN: ${{ secrets.PUBLIC_ORIGIN || '' }}
+        run: |
+          {
+            printf '%s\n' "PORT=$PORT"
+            printf '%s\n' "SENTIMENTIQ_AUTH_ENABLED=true"
+            printf '%s\n' "SENTIMENTIQ_ADMIN_USER=$ADMIN_USER"
+            printf '%s\n' "SENTIMENTIQ_ADMIN_PASSWORD=$ADMIN_PASSWORD"
+            printf '%s\n' "SENTIMENTIQ_SECRET_KEY=$SECRET_KEY"
+            printf '%s\n' "SENTIMENTIQ_CORS_ORIGINS=$PUBLIC_ORIGIN"
+            printf '%s\n' "SENTIMENTIQ_MAX_FILE_MB=200"
+            printf '%s\n' "SENTIMENTIQ_MAX_RECORDS=250000"
+            printf '%s\n' "SENTIMENTIQ_INLINE_RECORDS=500"
+            printf '%s\n' "SENTIMENTIQ_ANALYZE_LIMIT=100000"
+            printf '%s\n' "SENTIMENTIQ_DEVICE=-1"
+          } > /tmp/sentimentiq.env
+          chmod 600 /tmp/sentimentiq.env
+
+      - name: Deploy over SSH
+        env:
+          DEPLOY_PATH: ${{ secrets.DEPLOY_PATH }}
+          PORT: ${{ secrets.DEPLOY_PORT || '8000' }}
+        run: |
+          scp -F ~/.ssh/config /tmp/sentimentiq.env sentimentiq-prod:"$DEPLOY_PATH/.env"
+          ssh -F ~/.ssh/config sentimentiq-prod "DEPLOY_PATH='$DEPLOY_PATH' PORT='$PORT' bash -s" <<'REMOTE'
+          set -euo pipefail
+          cd "$DEPLOY_PATH"
+          git fetch --all --prune
+          git reset --hard origin/main
+          docker compose -f docker-compose.prod.yml up -d --build --remove-orphans
+
+          echo "Waiting for SentimentIQ health check..."
+          for i in $(seq 1 60); do
+            if curl -fsS "http://127.0.0.1:${PORT}/api/health" >/dev/null; then
+              echo "Deployment is healthy on port ${PORT}"
+              exit 0
+            fi
+            sleep 3
+          done
+
+          echo "Deployment did not become healthy. Recent logs:"
+          docker compose -f docker-compose.prod.yml logs --tail=150
+          exit 1
+          REMOTE
